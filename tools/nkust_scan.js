@@ -3,16 +3,24 @@ const { chromium } = require('playwright');
 const BASE = 'https://elearning.nkust.edu.tw';
 (async () => {
   const b = await chromium.launch(); const ctx = await b.newContext(); const p = await ctx.newPage();
-  await p.goto(BASE + '/moocs/#/home', { waitUntil: 'networkidle', timeout: 60000 });
-  await p.locator('button:visible', { hasText: /Login|登入/ }).first().click();
-  await p.waitForSelector('#account', { state: 'visible' });
-  await p.fill('#account', process.env.NKUST_USER); await p.fill('#password', process.env.NKUST_PASS);
-  const loginResp = p.waitForResponse(r => r.url().includes('/api/v1/auth/login'), { timeout: 30000 }).catch(() => null);
-  await p.locator('#password').press('Enter');
-  const lr = await loginResp; if (lr) { const t = await lr.text().catch(() => ''); if (lr.status() !== 200) console.error('login response', lr.status(), t.slice(0, 200)); }
-  await p.waitForTimeout(4000);
   const J = async u => { const r = await p.request.get(BASE + u); try { return await r.json(); } catch { return {}; } };
-  const me = await J('/api/v1/me/information'); if (!me.data) { console.log(JSON.stringify({ error: 'login failed' })); process.exit(1); }
+  const login = async () => {
+    await p.goto(BASE + '/moocs/#/home', { waitUntil: 'networkidle', timeout: 60000 });
+    if ((await J('/api/v1/me/information')).data) return true;
+    await p.locator('button:visible', { hasText: /Login|登入/ }).first().click();
+    await p.waitForSelector('#account', { state: 'visible' });
+    await p.fill('#account', process.env.NKUST_USER); await p.fill('#password', process.env.NKUST_PASS);
+    const resp = p.waitForResponse(r => r.url().includes('/api/v1/auth/login'), { timeout: 20000 }).catch(() => null);
+    // 點登入對話框裡的送出按鈕（與帳密欄位同一個 form）
+    const submit = p.locator('form:has(#password) button[type=submit]');
+    if (await submit.count()) await submit.first().click(); else await p.locator('#password').press('Enter');
+    const lr = await resp;
+    console.error('login request', lr ? lr.status() : 'not sent');
+    await p.waitForTimeout(3000);
+    return !!(await J('/api/v1/me/information')).data;
+  };
+  let ok = false; for (let i = 0; i < 3 && !ok; i++) { ok = await login(); if (!ok) await p.waitForTimeout(5000); }
+  if (!ok) { console.log(JSON.stringify({ error: 'login failed' })); process.exit(1); }
   const seen = new Set();
   const out = { scanned_at: new Date().toISOString(), calendar: [], assignments: [] };
   const now = new Date();
