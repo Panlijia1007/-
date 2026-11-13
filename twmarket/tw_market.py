@@ -5,7 +5,7 @@
   python tw_market.py get tpex /tpex_mainborad_highlight
   python tw_market.py catalog                  # 重新產生 CATALOG.md
 """
-import json, sys, argparse, pathlib
+import json, sys, time, argparse, pathlib
 import requests
 
 HERE = pathlib.Path(__file__).parent
@@ -19,8 +19,14 @@ def endpoints(src):
         yield path, (o.get("tags") or ["其他"])[0], o.get("summary", "")
 
 def get(src, path, code=None):
-    r = requests.get(BASE[src] + path, timeout=30)
-    r.raise_for_status()
+    for i in range(4):  # 連線偶爾被重設,自動重試
+        try:
+            r = requests.get(BASE[src] + path, timeout=30)
+            r.raise_for_status()
+            break
+        except requests.exceptions.ConnectionError:
+            if i == 3: raise
+            time.sleep(2 * (i + 1))
     data = r.json()
     if code and isinstance(data, list):
         data = [row for row in data if any(str(row.get(k, "")).strip() == code for k in CODE_KEYS)]
